@@ -1,0 +1,21 @@
+# Step 4 of the review's order: cheap baselines on frozen Clinical ModernBERT windows. Run src.embed first.
+csv_path: data/PRISM_LUAD_Dataset_-_Sheet1.csv
+reports_file: data/TCGA_Reports.xlsx
+output_dir: runs/frozen_baselines
+seed: 42
+n_folds: 5
+n_repeats: 5
+cv_scheme: site_grouped
+variants: [raw, masked]
+model_name: Simonlee711/Clinical_ModernBERT
+window_tokens: auto            # resolved from the checkpoint; ~125 text tokens if only 127 positions are trained
+window_overlap: 10
+max_chunks: 24                  # 5 windows would cover only ~590 tokens at 125/window
+chunk_pooling: mean
+# maf_path: data/luad_mutations.maf            # needed for real 0 / unknown labels and TMB
+# sequenced_ids_path: data/sequenced_ids.csv
+# mutation_definition: nonsilent
+
+# Labels (Issue 3): decided - only the 5 panel genes matter; a listed patient's unlisted gene is a real 0 (TCGA whole-exome calls).
+assume_tested_if_recorded: true
+acknowledge_label_assumption: true

@@ -1,5 +1,5 @@
 # ---- data ----
-csv_path: data/PRISM_LUAD_Dataset_-_Sheet1.csv
+csv_path: data/PRISM LUAD Dataset - Sheet1.csv
 reports_file: data/TCGA_Reports.xlsx
 text_col: text
 key_col: patient_filename
@@ -19,7 +19,7 @@ dropout: 0.2
 grad_ckpt: true
 
 # ---- loss ----
-loss: bce
+loss: asl
 pos_weight: true
 gamma_pos: 0.0
 gamma_neg: 4.0
@@ -35,7 +35,7 @@ max_grad_norm: 1.0
 patience: 4
 lr_head: 0.0005
 lr_encoder: 0.00002
-phase1_epochs: 3
-phase2_epochs: 10
+phase1_epochs: 2
+phase2_epochs: 2
 unfreeze_layers: 6
 keep_ckpt: false

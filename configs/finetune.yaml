@@ -1,0 +1,27 @@
+# Fine-tuning: only worth running if a baseline in runs/frozen_baselines shows signal.
+csv_path: data/PRISM_LUAD_Dataset_-_Sheet1.csv
+reports_file: data/TCGA_Reports.xlsx
+output_dir: runs/finetune
+seed: 42
+n_folds: 5
+n_repeats: 3
+cv_scheme: site_grouped
+model_name: Simonlee711/Clinical_ModernBERT
+window_tokens: auto            # resolved from the checkpoint; ~125 text tokens if only 127 positions are trained
+window_overlap: 10
+max_chunks: 24                  # 5 windows would cover only ~590 tokens at 125/window
+chunk_pooling: attn
+head_type: linear
+dropout: 0.1
+batch_size: 8
+grad_accum: 1
+lr_head: 0.001
+lr_encoder: 0.00002
+phase1_epochs: 20
+phase2_epochs: 10
+unfreeze_layers: 2
+mask_genes: true
+
+# Labels (Issue 3): decided - only the 5 panel genes matter; a listed patient's unlisted gene is a real 0 (TCGA whole-exome calls).
+assume_tested_if_recorded: true
+acknowledge_label_assumption: true

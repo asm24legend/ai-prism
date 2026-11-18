@@ -1,6 +1,8 @@
-runs/
 data/
 __pycache__/
 *.pt
+*.npz
 .venv/
 .ipynb_checkpoints/
+# run outputs ARE tracked (summary, metrics, oof predictions, config); only bulky files are ignored
+runs/**/best.pt

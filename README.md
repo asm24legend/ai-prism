@@ -1,51 +1,61 @@
-# AI-PRISM (LUAD): Clinical ModernBERT with per-gene heads
+# AI-PRISM (LUAD): Clinical ModernBERT (windowed) with per-gene heads
 
 Predicts mutation status of **KRAS, MUC16, RYR2, TP53, TTN** from lung adenocarcinoma pathology reports.
 
 ```
-report text (as given) -> Clinical ModernBERT (up to 8192 tokens) -> mean-pooled embedding z (768-d)
-            -> 5 separate MLPs (768 -> 256 -> 128 -> 1) -> sigmoid -> p_gene
+report text -> clean / (optional) mask gene names
+            -> overlapping windows (overlap 10, up to 24) sized to the encoder's trained positions
+            -> Simonlee711/Clinical_ModernBERT -> window vectors -> pool (mean | max | attention) -> report vector z
+            -> one linear head per gene -> sigmoid -> p_gene
+labels: 1 mutated / 0 sequenced, not mutated / NaN unknown  -> masked loss, masked metrics
 ```
+
+Why windows: the published `Simonlee711/Clinical_ModernBERT` has been reported (review, Issue 2) to load as a classic
+BERT with only ~127 trained position slots. The code reads the loaded weights, sizes windows to the trained positions
+(~125 text tokens + CLS/SEP) and refuses larger `window_tokens`. If the checkpoint turns out to be a true ModernBERT
+(rotary), the window widens automatically (capped at 1,024). Run `tools/check_encoder.py` first. Any other encoder
+(e.g. `emilyalsentzer/Bio_ClinicalBERT`, 512 tokens) can be swapped in via `model_name`.
 
 ## Layout
 | Path | Purpose |
 |---|---|
-| `config.yaml` | all settings (paths, model, loss, learning rates, phases, folds) |
-| `data/` | `PRISM_LUAD_Dataset_-_Sheet1.csv` (labels) and `TCGA_Reports.xlsx` (report text, matched by file name) |
-| `src/data.py` | label parsing, text join, Dataset, patient-level multilabel-stratified splits |
-| `src/preprocess.py` | optional cleanup and gene-name masking (both off by default; raw text is used) |
-| `src/model.py` | Clinical ModernBERT + one MLP per gene, freezing helper |
-| `src/losses.py` | BCE (optional pos_weight) and asymmetric loss |
-| `src/train.py` | two-phase training, 5-fold CV, metrics, outputs |
-| `runs/` | results per experiment (created at run time) |
+| `configs/*.yaml` | one committed config per experiment (never edit after a run) |
+| `src/config.py` | defaults + validation (unknown keys are an error) |
+| `src/data.py` | three-state labels (table or MAF), site codes, patient-level / site-grouped splits |
+| `src/preprocess.py` | cleaning, gene-name masking, optional site-boilerplate stripping, gene-mention report |
+| `src/chunking.py`, `src/encoder_check.py` | windowing; position-table check; masked-word test |
+| `src/model.py`, `src/losses.py`, `src/metrics.py` | model, masked BCE, masked metrics + bootstrap CIs |
+| `src/embed.py` | encode every report once with the frozen encoder, cache window vectors |
+| `src/baselines.py` | prevalence / site / TMB / TF-IDF / frozen-embedding baselines with permutation tests |
+| `src/train.py` | fine-tuning (only if a baseline shows signal) |
+| `tools/check_encoder.py` | run on any encoder before use |
+| `tests/` | `pytest` unit tests |
 
-## Setup (VS Code terminal)
+## Setup
 ```bash
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt    # on a GPU machine install the CUDA build of torch first (pytorch.org)
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt     # GPU: install the CUDA build of torch first
+pytest -q
 ```
-In VS Code: Ctrl+Shift+P -> "Python: Select Interpreter" -> pick `.venv`.
 
-## Run (from the project root)
+## Order of work (follows the review)
 ```bash
-python -m src.train --config config.yaml
-python -m src.train --config config.yaml --override n_folds=1 max_len=2048 output_dir=runs/quick
+python tools/check_encoder.py --model Simonlee711/Clinical_ModernBERT     # 1. encoder sanity
+python -m src.embed     --config configs/frozen_baselines.yaml            # 2. cache frozen window vectors (raw + masked)
+python -m src.baselines --config configs/frozen_baselines.yaml            # 3. baselines, site-grouped repeated CV
+python -m src.train     --config configs/finetune.yaml                    # 4. only if step 3 shows signal
 ```
-Needs a GPU (about 16 GB for `max_len=4096`; set `grad_ckpt=true` or lower `max_len` if memory runs out).
-The first run downloads `Simonlee711/Clinical_ModernBERT` from Hugging Face.
 
-## Training phases
-1. **Phase 1** (`phase1_epochs`): encoder fully frozen, only the 5 gene heads train (`lr_head`).
-2. **Phase 2** (`phase2_epochs`): top `unfreeze_layers` encoder layers unfrozen at the lower `lr_encoder`.
-
-Each gene's output bias starts at the log-odds of its training prevalence. The best checkpoint is chosen by
-validation macro-AUPRC; per-gene F1 thresholds are tuned on validation only.
+## Labels - read this
+The label table lists only genes found mutated, so on its own it cannot say which genes were *tested*.
+Without a MAF the code treats a listed patient's absent gene as 0 (whole-exome assumption, warned at start-up) and a
+patient with an empty record as **unknown**. For real three-state labels and TMB set in the config:
+`maf_path`, `sequenced_ids_path`, `mutation_definition` (`nonsilent` or `kras_hotspot`).
 
 ## Outputs (`runs/<exp>/`)
-`summary.json` (mean/std over folds, per-gene AUROC/AUPRC), `oof_predictions.csv`, `fold*/metrics.json`, `config_used.json`.
+`config_used.json`, `config_source.yaml`, `run_info.json` (git commit), `label_counts.csv`, `gene_mentions.csv`,
+`summary.json` (pooled out-of-fold AUROC/AUPRC + bootstrap CI), `oof_predictions.csv`, `baseline_results.csv`,
+`text_plus_tmb_vs_tmb.csv`. Copy `runs/<exp>/` into version control with the config (the repo `.gitignore` no longer
+hides `runs/*/summary.json` etc.).
 
-## Notes
-- 191 LUAD patients; 183 have a report in `TCGA_Reports.xlsx` (8 are dropped and listed at start-up).
-- Report texts are used directly, with no OCR repair, section reordering or tokenizer vocabulary extension.
-- 17 of the 183 reports name one of the five genes. Set `mask_genes: true` to hide them if you want to rule out keyword lookup.
+Hyperparameter tables: `python tools/make_hyperparameter_table.py configs/finetune.yaml` (generated, not hand-written).

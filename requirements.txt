@@ -1,8 +1,11 @@
 torch
 transformers>=4.48
-scikit-learn
+scikit-learn>=1.2
 pandas
+numpy
+scipy
 openpyxl
 pyyaml
 iterative-stratification
-jupyter
+pytest
+accelerate
